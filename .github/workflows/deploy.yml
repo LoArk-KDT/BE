@@ -4,9 +4,9 @@ name: Loark CI/CD
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "deploy-debug-wildmental-0829" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "deploy-debug-wildmental-0829" ]
 
 env:
   IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
