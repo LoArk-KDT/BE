@@ -24,22 +24,33 @@ jobs:
       - name: Execute remote commands
         run: |
           echo "### 1. Successfully connected to Public EC2 from GitHub Actions ###"
-          ssh ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} 'bash -s' <<'ENDSSH'
+          # 첫 번째 SSH 연결에 -A 옵션을 추가하여 Agent Forwarding을 시작합니다.
+          ssh -A -o StrictHostKeyChecking=no ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} 'bash -s' <<'ENDSSH'
             # 이 스크립트는 Public EC2 내부에서 실행됩니다.
             set -e
 
             echo "### DEBUG: Checking for keys in the SSH Agent on Public EC2... ###"
+            # 이제 이 명령어가 성공적으로 키 지문을 출력해야 합니다.
             ssh-add -l
-            # 위 명령어 실행 결과가 "The agent has no identities." 라고 나오면 키 전달에 실패한 것입니다.
-            # 정상이라면 키의 지문(fingerprint)이 출력되어야 합니다.
 
-            PRIVATE_EC2_IP="10.0.70.192"
+            PRIVATE_EC2_IP="10.0.70.192" # Private EC2의 내부 IP
             
             echo "### 2. Trying to connect to Private EC2 from Public EC2... ###"
-            ssh -A -v -o StrictHostKeyChecking=no ${{ secrets.AWS_EC2_USER }}@$PRIVATE_EC2_IP 'bash -s' <<'INNER_ENDSSH'
-              # Private EC2 내부에서 실행되는 스크립트는 그대로 둡니다.
+            # 두 번째 SSH 연결이 전달받은 Agent를 사용하여 Private EC2에 접속합니다.
+            ssh -A -o StrictHostKeyChecking=no ${{ secrets.AWS_EC2_USER }}@$PRIVATE_EC2_IP 'bash -s' <<'INNER_ENDSSH'
+              # 이 스크립트는 Private EC2 내부에서 실행됩니다.
               set -e
+
               echo "### 3. Successfully connected to Private EC2 ###"
-              echo "### SUCCESS! ###"
+              
+              # 최종 테스트: Private EC2에서 프록시를 통해 AWS 서비스에 접속
+              export http_proxy="http://10.0.1.247:3128"
+              export https_proxy="http://10.0.1.247:3128"
+              export no_proxy="localhost,127.0.0.1,169.254.169.254"
+              
+              echo "### 4. Final Test: Running 'aws sts get-caller-identity' on Private EC2 ###"
+              aws sts get-caller-identity
+
+              echo "### 🎉 SUCCESS: All connectivity tests passed! ###"
           INNER_ENDSSH
           ENDSSH
