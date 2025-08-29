@@ -24,7 +24,7 @@ jobs:
       - name: Execute remote commands
         run: |
           echo "### 1. Successfully connected to Public EC2 from GitHub Actions ###"
-          ssh ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} 'bash -s' <<'ENDSSH' # <--- 수정 (2곳)
+          ssh ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} 'bash -s' <<'ENDSSH'
             # 이 스크립트는 Public EC2 내부에서 실행됩니다.
             set -e # 오류 발생 시 즉시 중단
 
@@ -35,7 +35,8 @@ jobs:
             echo "### 2. Trying to connect to Private EC2 from Public EC2... ###"
 
             # Public EC2에서 Private EC2로 SSH 접속하여 내부 스크립트 실행
-            ssh -o StrictHostKeyChecking=no ec2-user@$PRIVATE_EC2_IP 'bash -s' <<'INNER_ENDSSH'
+            # -A 옵션을 추가하여 SSH Agent Forwarding을 활성화합니다.
+            ssh -A -o StrictHostKeyChecking=no ${{ secrets.AWS_EC2_USER }}@$PRIVATE_EC2_IP 'bash -s' <<'INNER_ENDSSH'
               # 이 스크립트는 Private EC2 내부에서 실행됩니다.
               set -e
 
