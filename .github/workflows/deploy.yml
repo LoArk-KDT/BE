@@ -8,6 +8,11 @@ on:
   pull_request:
     branches: [ "master" ]
 
+env:
+  IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+  BASTION: ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }}
+  TARGET:  ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }}
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -69,16 +74,13 @@ jobs:
         run: |
           # 1. GitHub Secret에 저장된 SSH 키를 임시 파일로 생성합니다.
           echo "${{ secrets.AWS_EC2_KEY }}" > private_key.pem
-          chmod 600 private_key.pem
+          chmod 400 private_key.pem
           
           # 2. 만약의 경우를 대비해 프록시 변수를 다시 한번 강제 해제합니다.
           unset http_proxy https_proxy
           
           # 3. Bastion을 통해 Private EC2로 SSH 명령을 실행합니다.
           # ssh-action 대신 직접 ssh 명령어를 사용합니다. -i 옵션으로 방금 생성한 키 파일을 지정합니다.
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} " \
-            ssh -o StrictHostKeyChecking=no -i ~/key.pem ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }} ' \
-              sh ~/deploy.sh \"${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest\"
-            '
-          "
-
+          ssh -o StrictHostKeyChecking=accept-new -i private_key.pem "$BASTION" \
+            "ssh -o StrictHostKeyChecking=accept-new -i ~/key.pem $TARGET \
+             bash ~/deploy.sh '$IMAGE'"
