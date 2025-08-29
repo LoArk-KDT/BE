@@ -70,7 +70,8 @@ jobs:
       # ssh -J (ProxyJump)를 사용하여 한 번에 깔끔하게 명령을 실행합니다.
       - name: Deploy to Private EC2 via Bastion Host
         run: |
-          ssh -o StrictHostKeyChecking=accept-new \
+          ssh -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
             -J ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} \
             ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }} \
             "bash ~/deploy.sh '${{ steps.build-image.outputs.image }}'"
