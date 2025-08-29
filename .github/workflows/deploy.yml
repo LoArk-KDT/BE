@@ -8,11 +8,6 @@ on:
   pull_request:
     branches: [ "deploy-debug-wildmental-0829" ]
 
-env:
-  IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
-  BASTION: ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }}
-  TARGET:  ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }}
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -71,6 +66,10 @@ jobs:
 
       # 8. [최종 수정] appleboy/ssh-action 대신 run 스텝으로 직접 SSH 실행
       - name: Deploy to EC2 via Bastion (Manual SSH)
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+          BASTION: ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }}
+          TARGET:  ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }}
         run: |
           # 1. GitHub Secret에 저장된 SSH 키를 임시 파일로 생성합니다.
           echo "${{ secrets.AWS_EC2_KEY }}" > private_key.pem
