@@ -15,16 +15,16 @@ jobs:
       - name: Setup SSH Key
         uses: webfactory/ssh-agent@v0.5.4
         with:
-          ssh-private-key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ secrets.AWS_EC2_KEY }} # <--- 수정
 
       - name: Add Public EC2 to known_hosts
         run: |
-          ssh-keyscan -H ${{ secrets.AWS_PUBLIC_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts # <--- 수정
 
       - name: Execute remote commands
         run: |
           echo "### 1. Successfully connected to Public EC2 from GitHub Actions ###"
-          ssh ${{ secrets.AWS_USERNAME }}@${{ secrets.AWS_PUBLIC_HOST }} 'bash -s' <<'ENDSSH'
+          ssh ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} 'bash -s' <<'ENDSSH' # <--- 수정 (2곳)
             # 이 스크립트는 Public EC2 내부에서 실행됩니다.
             set -e # 오류 발생 시 즉시 중단
 
