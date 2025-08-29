@@ -11,12 +11,7 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # ✅ [디버깅용 스텝 추가] 모든 환경 변수를 출력하여 확인합니다.
-      - name: Print all environment variables
-        run: env | sort
-        
       # 1. GitHub 리포지토리의 코드를 Runner로 가져옵니다.
       - name: Checkout
         uses: actions/checkout@v3
@@ -29,8 +24,6 @@ jobs:
           distribution: 'temurin'
 
       # 3. gradlew 파일에 실행 권한을 부여합니다.
-      # 프로젝트 구조에 맞게 working-directory를 설정하세요.
-      # 만약 프로젝트 루트에 gradlew가 있다면 working-directory는 필요 없습니다.
       - name: Grant execute permission for gradlew
         working-directory: ./Loark
         run: chmod +x gradlew
@@ -55,6 +48,7 @@ jobs:
 
       # 7. Docker 이미지를 빌드하고 ECR에 푸시합니다.
       - name: Build, tag, and push image to Amazon ECR
+        id: build-image
         working-directory: ./Loark
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -63,23 +57,20 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      # 8. [최종 수정] appleboy/ssh-action 대신 run 스텝으로 직접 SSH 실행
-      - name: Deploy to EC2 via Bastion (Manual SSH)
-        env:
-          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
-          BASTION: ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }}
-          TARGET:  ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }}
+      # 8. SSH Agent 설정 (가장 안전한 방식)
+      # SSH 키를 파일로 만들지 않고 Agent에 로드합니다.
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.AWS_EC2_KEY }}
+          
+      # 9. Bastion을 통해 Private EC2에 배포
+      # ssh -J (ProxyJump)를 사용하여 한 번에 깔끔하게 명령을 실행합니다.
+      - name: Deploy to Private EC2 via Bastion Host
         run: |
-          # 1. GitHub Secret에 저장된 SSH 키를 임시 파일로 생성합니다.
-          echo "${{ secrets.AWS_EC2_KEY }}" > private_key.pem
-          chmod 400 private_key.pem
-          
-          # 2. 만약의 경우를 대비해 프록시 변수를 다시 한번 강제 해제합니다.
-          unset http_proxy https_proxy
-          
-          # 3. Bastion을 통해 Private EC2로 SSH 명령을 실행합니다.
-          # ssh-action 대신 직접 ssh 명령어를 사용합니다. -i 옵션으로 방금 생성한 키 파일을 지정합니다.
-          ssh -o StrictHostKeyChecking=accept-new -i private_key.pem "$BASTION" \
-            "ssh -o StrictHostKeyChecking=accept-new -i ~/key.pem $TARGET \
-             bash ~/deploy.sh '$IMAGE'"
+          ssh -o StrictHostKeyChecking=accept-new \
+            -J ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} \
+            ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }} \
+            "bash ~/deploy.sh '${{ steps.build-image.outputs.image }}'"
