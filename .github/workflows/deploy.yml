@@ -1,84 +1,64 @@
 # .github/workflows/deploy.yml
 
-name: Loark CI/CD
+name: Connect and Test EC2
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "access-test" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "access-test" ]
 
 jobs:
-  build-and-deploy:
+  test-connectivity:
     runs-on: ubuntu-latest
-
     steps:
-      # ✅ [디버깅용 스텝 추가] 모든 환경 변수를 출력하여 확인합니다.
-      - name: Print all environment variables
-        run: env | sort
-        
-      # 1. GitHub 리포지토리의 코드를 Runner로 가져옵니다.
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      # 2. JDK 17을 설치합니다.
-      - name: Set up JDK 17
-        uses: actions/setup-java@v3
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.5.4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          ssh-private-key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
 
-      # 3. gradlew 파일에 실행 권한을 부여합니다.
-      # 프로젝트 구조에 맞게 working-directory를 설정하세요.
-      # 만약 프로젝트 루트에 gradlew가 있다면 working-directory는 필요 없습니다.
-      - name: Grant execute permission for gradlew
-        working-directory: ./Loark
-        run: chmod +x gradlew
-
-      # 4. Gradle로 프로젝트를 빌드합니다.
-      - name: Build with Gradle
-        working-directory: ./Loark
-        run: ./gradlew build -x test
-
-      # 5. AWS ECR에 접근하기 위한 자격 증명을 설정합니다.
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      # 6. AWS ECR에 로그인합니다.
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      # 7. Docker 이미지를 빌드하고 ECR에 푸시합니다.
-      - name: Build, tag, and push image to Amazon ECR
-        working-directory: ./Loark
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-          IMAGE_TAG: latest
+      - name: Add Public EC2 to known_hosts
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          ssh-keyscan -H ${{ secrets.AWS_PUBLIC_HOST }} >> ~/.ssh/known_hosts
 
-      # 8. [최종 수정] appleboy/ssh-action 대신 run 스텝으로 직접 SSH 실행
-      - name: Deploy to EC2 via Bastion (Manual SSH)
+      - name: Execute remote commands
         run: |
-          # 1. GitHub Secret에 저장된 SSH 키를 임시 파일로 생성합니다.
-          echo "${{ secrets.AWS_EC2_KEY }}" > private_key.pem
-          chmod 600 private_key.pem
-          
-          # 2. 만약의 경우를 대비해 프록시 변수를 다시 한번 강제 해제합니다.
-          unset http_proxy https_proxy
-          
-          # 3. Bastion을 통해 Private EC2로 SSH 명령을 실행합니다.
-          # ssh-action 대신 직접 ssh 명령어를 사용합니다. -i 옵션으로 방금 생성한 키 파일을 지정합니다.
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} " \
-            ssh -o StrictHostKeyChecking=no -i ~/key.pem ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST_PRIVATE }} ' \
-              sh ~/deploy.sh \"${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest\"
-            '
-          "
+          echo "### 1. Successfully connected to Public EC2 from GitHub Actions ###"
+          ssh ${{ secrets.AWS_USERNAME }}@${{ secrets.AWS_PUBLIC_HOST }} 'bash -s' <<'ENDSSH'
+            # 이 스크립트는 Public EC2 내부에서 실행됩니다.
+            set -e # 오류 발생 시 즉시 중단
 
+            PRIVATE_EC2_IP="10.0.70.192" # Private EC2의 내부 IP
+            PUBLIC_EC2_PRIVATE_IP="10.0.1.247" # Public EC2의 내부 IP
+            PROXY_PORT="3128"
+
+            echo "### 2. Trying to connect to Private EC2 from Public EC2... ###"
+
+            # Public EC2에서 Private EC2로 SSH 접속하여 내부 스크립트 실행
+            ssh -o StrictHostKeyChecking=no ec2-user@$PRIVATE_EC2_IP 'bash -s' <<'INNER_ENDSSH'
+              # 이 스크립트는 Private EC2 내부에서 실행됩니다.
+              set -e
+
+              echo "### 3. Successfully connected to Private EC2 ###"
+              echo "### 4. Testing connectivity to Proxy Server... ###"
+
+              # 4-1. nc 명령어로 프록시 포트 연결 확인 (이미 성공하셨던 부분)
+              nc -vz 10.0.1.247 3128
+
+              echo "### 5. Setting up proxy environment variables... ###"
+              # no_proxy에서 .amazonaws.com 제거
+              export http_proxy="http://10.0.1.247:3128"
+              export https_proxy="http://10.0.1.247:3128"
+              export no_proxy="localhost,127.0.0.1,169.254.169.254"
+
+              echo "### 6. Testing external internet access via proxy... ###"
+              # 6-1. curl을 사용한 외부 사이트 접속 테스트
+              curl -sv -o /dev/null --connect-timeout 10 https://www.google.com
+
+              echo "### 7. Testing AWS service access via proxy... ###"
+              # 6-2. AWS CLI를 사용한 AWS 서비스 접속 테스트
+              aws sts get-caller-identity
+
+              echo "### SUCCESS: All connectivity tests passed on Private EC2! ###"
+          INNER_ENDSSH
+          ENDSSH
